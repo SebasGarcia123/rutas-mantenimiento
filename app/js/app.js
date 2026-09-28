@@ -7,7 +7,7 @@
   const fmtF = (iso) => (iso ? iso.split('-').reverse().join('/') : '');
 
   /* ---------------- Estado ---------------- */
-  const S = { clientes: new Map(), historial: new Map(), pedidos: [], vista: 'ambas', sel: null };
+  const S = { clientes: new Map(), historial: new Map(), pedidos: [], vista: 'ambas', sel: null, selRuta: null };
   const CFG_KEY = 'gp_cfg';
   const cfgGuardada = () => { try { return JSON.parse(localStorage.getItem(CFG_KEY) || '{}'); } catch (e) { return {}; } };
   const getCfg = () => {
@@ -175,7 +175,7 @@
   }
 
   /* ---------------- Mapa ---------------- */
-  let map, capa, marcadores = new Map();
+  let map, capa, marcadores = new Map(), rutas = new Map(); // rutas: "tipoRuta|numRuta" -> { polyline, marcadores:[codigo,...], bounds }
   function initMapa() {
     map = L.map('mapa').setView([-34.6, -58.44], 11);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
@@ -186,10 +186,11 @@
     const mostrar = map.getZoom() >= 14;
     marcadores.forEach((m) => { const t = m.getTooltip(); if (t) { t.options.permanent = mostrar; m.unbindTooltip(); m.bindTooltip(t._content, { permanent: mostrar, direction: 'top', className: 'nombre', offset: [0, -4] }); } });
   }
+  const claveRuta = (p) => p.tipoRuta + '|' + p.numRuta;
   let primeraVez = true;
   function dibujarMapa(rows) {
     if (!map) return;
-    capa.clearLayers(); marcadores = new Map();
+    capa.clearLayers(); marcadores = new Map(); rutas = new Map();
     const porRuta = new Map();
     const bounds = [];
     const permanente = map.getZoom() >= 14;
@@ -203,25 +204,51 @@
       m.on('click', () => seleccionar(p.codigo, false));
       marcadores.set(p.codigo, m);
       bounds.push([c.y, c.x]);
-      const k = p.tipoRuta + p.numRuta;
-      if (!porRuta.has(k)) porRuta.set(k, { tipo: p.tipoRuta, pts: [] });
+      const k = claveRuta(p);
+      if (!porRuta.has(k)) porRuta.set(k, { tipo: p.tipoRuta, pts: [], codigos: [] });
       porRuta.get(k).pts.push({ o: p.orden, ll: [c.y, c.x] });
+      porRuta.get(k).codigos.push(p.codigo);
     });
-    porRuta.forEach((r) => {
+    porRuta.forEach((r, k) => {
       const pts = r.pts.sort((a, b) => a.o - b.o).map((x) => x.ll);
-      if (pts.length > 1) L.polyline(pts, { color: r.tipo === 'A pie' ? '#1565c0' : '#ef6c00', weight: 2, opacity: 0.6, dashArray: r.tipo === 'A pie' ? '4 4' : null }).addTo(capa);
+      let polyline = null;
+      if (pts.length > 1) polyline = L.polyline(pts, { color: r.tipo === 'A pie' ? '#1565c0' : '#ef6c00', weight: 2, opacity: 0.6, dashArray: r.tipo === 'A pie' ? '4 4' : null }).addTo(capa);
+      rutas.set(k, { polyline, codigos: r.codigos, bounds: pts });
     });
     if (bounds.length && (primeraVez || $('fBuscar').value || $('fEstado').value !== 'Todas' || $('fZona').value)) {
       map.fitBounds(bounds, { padding: [30, 30], maxZoom: 15 }); primeraVez = false;
     }
+    resaltarRuta(S.selRuta);
+  }
+  /* Resalta (o desmarca, si key es null) la ruta indicada: linea mas gruesa y marcadores con borde azul. */
+  function resaltarRuta(key) {
+    rutas.forEach((r, k) => {
+      const activa = k === key;
+      if (r.polyline) r.polyline.setStyle({ weight: activa ? 5 : 2, opacity: activa ? 0.95 : 0.6 });
+      if (r.polyline && activa) r.polyline.bringToFront();
+      r.codigos.forEach((cod) => {
+        const m = marcadores.get(cod);
+        if (!m) return;
+        m.setStyle({ color: activa ? '#1f6feb' : '#fff', weight: activa ? 3 : 1.5, radius: activa ? 9 : 7 });
+        if (activa) m.bringToFront();
+      });
+    });
   }
   function seleccionar(codigo, mover = true) {
     S.sel = codigo;
+    const p = S.pedidos.find((x) => x.codigo === codigo);
+    S.selRuta = p ? claveRuta(p) : null;
     document.querySelectorAll('#tabla tbody tr').forEach((tr) => tr.classList.toggle('sel', tr.dataset.cod === codigo));
     const tr = document.querySelector(`#tabla tbody tr[data-cod="${CSS.escape(codigo)}"]`);
     if (tr && !mover) tr.scrollIntoView({ block: 'nearest' });
-    const m = marcadores.get(codigo);
-    if (m && mover && $('main').className !== 'lista') { map.setView(m.getLatLng(), Math.max(map.getZoom(), 15)); m.openPopup(); }
+    resaltarRuta(S.selRuta);
+    if (mover && $('main').className !== 'lista') {
+      const r = S.selRuta && rutas.get(S.selRuta);
+      const m = marcadores.get(codigo);
+      if (r && r.bounds.length > 1) map.fitBounds(r.bounds, { padding: [40, 40], maxZoom: 16 });
+      else if (m) map.setView(m.getLatLng(), Math.max(map.getZoom(), 15));
+      if (m) m.openPopup();
+    }
   }
 
   /* ---------------- Cumplir / deshacer ---------------- */
@@ -276,13 +303,6 @@
   const filtradosTodos = () => S.pedidos.map((p) => ({ p, c: S.clientes.get(p.codigo) })).filter((x) => x.c)
     .sort((a, b) => a.p.numRuta - b.p.numRuta || (a.p.tipoRuta === b.p.tipoRuta ? 0 : a.p.tipoRuta === 'A pie' ? -1 : 1) || a.p.orden - b.p.orden);
 
-  function plantilla() {
-    const head = ['ID', 'Latitud', 'Longitud', 'Nombre del cliente', 'Fecha último mantenimiento 1', 'Tipo 1', 'Fecha último mantenimiento 2', 'Tipo 2', 'Fecha último mantenimiento 3', 'Tipo 3', 'Días cerrados', 'Horario'];
-    const ej = [['P1001', -34.5875, -58.4381, 'Cliente Ejemplo', '15/08/2026', 'Express', '15/06/2026', 'Profundo', '', '', 'Sábado y Domingo', '9 a 13']];
-    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([head, ...ej]), 'Clientes');
-    XLSX.writeFile(wb, 'plantilla-clientes.xlsx');
-  }
-
   /* ---------------- Configuracion ---------------- */
   const CAMPOS = { cInicio: ['cicloInicio'], cLat: ['centro', 'lat'], cLon: ['centro', 'lon'], cWalk: ['walkMaxM'], cVel: ['velocidadKmh'], cJornada: ['jornadaMin'], cExp: ['minExpress'], cProf: ['minProfundo'], cObj: ['diasObjetivo'], cTol: ['tolerancia'], cPrimera: ['tipoPrimeraVez'] };
   const leer = (o, path) => path.reduce((a, k) => (a == null ? a : a[k]), o);
@@ -306,7 +326,6 @@
   function eventos() {
     $('btnImportar').onclick = () => $('fileInput').click();
     $('fileInput').onchange = (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) conEspera($('btnImportar'), () => importar(f)); };
-    $('btnPlantilla').onclick = plantilla;
     $('btnExportar').onclick = exportar;
     $('btnRecalcular').onclick = () => conEspera($('btnRecalcular'), async () => {
       if (!S.clientes.size) { alert('Primero importá un Excel de clientes.'); return; }
