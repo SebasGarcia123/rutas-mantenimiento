@@ -209,8 +209,9 @@
      con la misma cantidad de rutas a pie entre si (y por lo tanto, ya con eso, tambien la misma cantidad en
      camioneta). Por eso primero se detectan los grupos de 6 clientes a <=300m entre si SIN importar la zona,
      se balancea la CANTIDAD DE GRUPOS entre las tres zonas moviendolos enteros (nunca se separa un grupo), y
-     recien despues se reparten los clientes sueltos, moviendo de a uno los mas "al borde" hacia la zona con
-     menos clientes, hasta que el total tambien quede lo mas parejo posible entre las tres. */
+     recien despues se reparten los clientes sueltos -agrupados por domicilio: dos clientes con la MISMA
+     coordenada (mismo lugar con mas de un servicio) siempre se mueven juntos, nunca terminan en zonas ni
+     recorridos distintos- hasta que el total tambien quede lo mas parejo posible entre las tres. */
   function asignarZonas(clientes, cfg) {
     const puntos = cfg.zonaPuntos, zonas3 = ['Norte', 'Sur', 'Centro'];
     function dist3(pt) {
@@ -220,20 +221,26 @@
     }
     function masCercana(d) { return Object.keys(d).reduce((a, b) => (d[a] <= d[b] ? a : b)); }
     function masCercana3(d) { return zonas3.reduce((a, b) => (d[a] <= d[b] ? a : b)); }
-    function balancear(items, cuenta, tamano) {
+    // balancea moviendo, de a un item entero por vez (cada uno pesa lo que diga su _tamano: un grupo a pie
+    // pesa 1 grupo, un sitio pesa su cantidad de clientes), el candidato que mas ACERQUE los totales, hasta
+    // que la diferencia entre la zona con mas y la de menos sea <=1 o ya no se pueda mejorar sin separar nada.
+    function balancear(items, cuenta) {
       let guard = 0;
-      while (guard++ < items.length * 2) {
+      while (guard++ < items.length * 3) {
         const max = zonas3.reduce((a, b) => (cuenta[a] >= cuenta[b] ? a : b));
         const min = zonas3.reduce((a, b) => (cuenta[a] <= cuenta[b] ? a : b));
-        if (cuenta[max] - cuenta[min] <= tamano) break;
+        const desbalance = cuenta[max] - cuenta[min];
+        if (desbalance <= 1) break;
         let cand = null, costo = Infinity;
         items.forEach((it) => {
           if (it._zona !== max) return;
+          const nuevo = Math.abs((cuenta[max] - it._tamano) - (cuenta[min] + it._tamano));
+          if (nuevo >= desbalance) return; // moverlo no achica la diferencia, no sirve
           const k = it._dist3[min] - it._dist3[max];
           if (k < costo) { costo = k; cand = it; }
         });
         if (!cand) break;
-        cuenta[max] -= tamano; cand._zona = min; cuenta[min] += tamano;
+        cuenta[max] -= cand._tamano; cand._zona = min; cuenta[min] += cand._tamano;
       }
     }
 
@@ -245,76 +252,108 @@
       c._dist3 = d; libres.push(c);
     });
 
-    // 2) grupos "a pie" (>=6 a <=300m) detectados sin distinguir zona, para poder balancear la cantidad de rutas a pie
-    const pool = libres.slice().sort((a, b) => b.dist - a.dist);
+    // 2) grupos "a pie" (>=6 a <=300m) detectados sin distinguir zona, para poder balancear la cantidad de rutas a pie.
+    //    Se arman por SITIO (domicilio), nunca partiendo uno a la mitad entre un grupo y los sueltos.
+    const poolSitios = sitiosDe(libres, cfg.walkSize).sort((a, b) => b.dist - a.dist);
     const usados = new Set(), descartados = new Set(), grupos = [];
-    pool.forEach((start) => {
-      if (usados.has(start.codigo) || descartados.has(start.codigo)) return;
-      const g = crecer(start, pool, new Set(usados), cfg.walkSize, cfg.walkMaxM / 1000);
-      if (g.length === cfg.walkSize) { g.forEach((c) => usados.add(c.codigo)); grupos.push(g); } else descartados.add(start.codigo);
+    poolSitios.forEach((start) => {
+      if (start.miembros.some((c) => usados.has(c.codigo)) || descartados.has(start)) return;
+      const g = crecerSitios(start, poolSitios, new Set(usados), cfg.walkSize, cfg.walkMaxM / 1000);
+      if (g.length === cfg.walkSize) { g.forEach((c) => usados.add(c.codigo)); grupos.push(g); } else descartados.add(start);
     });
     grupos.forEach((g) => {
       const centroide = { lat: g.reduce((s, c) => s + c.lat, 0) / g.length, lon: g.reduce((s, c) => s + c.lon, 0) / g.length };
       g._dist3 = dist3(centroide);
       g._zona = masCercana3(g._dist3);
+      g._tamano = 1; // cuenta como 1 grupo
     });
     const cuentaGrupos = {}; zonas3.forEach((z) => { cuentaGrupos[z] = 0; });
     grupos.forEach((g) => cuentaGrupos[g._zona]++);
-    balancear(grupos, cuentaGrupos, 1);
+    balancear(grupos, cuentaGrupos);
 
     // 3) fijar la zona de los clientes agrupados (van todos juntos) y sacarlos del reparto individual
     const enGrupo = new Set();
     grupos.forEach((g) => { g.forEach((c) => { c.zona = g._zona; enGrupo.add(c.codigo); }); });
     const sueltos = libres.filter((c) => !enGrupo.has(c.codigo));
-    sueltos.forEach((c) => { c._zona = masCercana3(c._dist3); });
 
-    // 4) balancear la cantidad TOTAL de clientes por zona (arrancando desde lo que ya aportaron los grupos)
+    // 4) agrupar los sueltos por domicilio (misma coordenada exacta = mismo lugar) para que nunca se separen
+    const porCoord = new Map();
+    sueltos.forEach((c) => {
+      const k = c.lat.toFixed(5) + '|' + c.lon.toFixed(5);
+      if (!porCoord.has(k)) porCoord.set(k, []);
+      porCoord.get(k).push(c);
+    });
+    const sitios = [...porCoord.values()].map((miembros) => ({
+      miembros, _dist3: miembros[0]._dist3, _zona: masCercana3(miembros[0]._dist3), _tamano: miembros.length
+    }));
+
+    // 5) balancear la cantidad TOTAL de clientes por zona (arrancando desde lo que ya aportaron los grupos a pie),
+    //    moviendo cada sitio entero, nunca clientes sueltos de a uno
     const cuenta = {}; zonas3.forEach((z) => { cuenta[z] = cuentaGrupos[z] * cfg.walkSize; });
-    sueltos.forEach((c) => cuenta[c._zona]++);
-    balancear(sueltos, cuenta, 1);
-    sueltos.forEach((c) => { c.zona = c._zona; });
+    sitios.forEach((s) => { cuenta[s._zona] += s._tamano; });
+    balancear(sitios, cuenta);
+    sitios.forEach((s) => { s.miembros.forEach((c) => { c.zona = s._zona; }); });
 
-    libres.forEach((c) => { delete c._dist3; delete c._zona; });
+    libres.forEach((c) => { delete c._dist3; });
   }
 
   const d2 = (a, b) => haversineKm(a, b);
 
-  /* Crecimiento de un grupo por vecino mas cercano a cualquier miembro */
-  function crecer(start, pool, used, size, maxKm) {
+  /* Agrupa una lista de clientes por domicilio EXACTO (misma coordenada = mismo lugar, puede tener mas de un
+     servicio). Un domicilio con mas de "tope" clientes se separa en bloques de a lo sumo "tope", nunca mas
+     chicos de lo necesario (asi, por ejemplo, 8 clientes en un mismo lugar quedan en un bloque de 6 y otro
+     de 2, en vez de partirse de cualquier manera). Cada bloque se trata despues como una unidad indivisible:
+     o entran TODOS sus clientes en una ruta, o ninguno. */
+  function sitiosDe(pool, tope) {
+    const m = new Map();
+    pool.forEach((c) => {
+      const k = c.lat.toFixed(5) + '|' + c.lon.toFixed(5);
+      if (!m.has(k)) m.set(k, []);
+      m.get(k).push(c);
+    });
+    const sitios = [];
+    m.forEach((miembros) => { for (let i = 0; i < miembros.length; i += tope) sitios.push(miembros.slice(i, i + tope)); });
+    return sitios.map((miembros) => ({ lat: miembros[0].lat, lon: miembros[0].lon, dist: miembros[0].dist, miembros }));
+  }
+
+  /* Crecimiento de un grupo por vecino mas cercano a cualquier miembro, pero sumando sitios ENTEROS (nunca
+     una parte): un sitio solo entra si su bloque completo de clientes entra en el cupo que queda. */
+  function crecerSitios(start, poolSitios, usadosCod, size, maxKm) {
     const grupo = [start];
-    used.add(start.codigo);
-    while (grupo.length < size) {
+    let total = start.miembros.length;
+    start.miembros.forEach((c) => usadosCod.add(c.codigo));
+    while (total < size) {
       let best = null, bd = Infinity;
-      for (const c of pool) {
-        if (used.has(c.codigo)) continue;
-        for (const m of grupo) {
-          const d = d2(c, m);
-          if (d < bd) { bd = d; best = c; }
-        }
+      for (const s of poolSitios) {
+        if (s.miembros.some((c) => usadosCod.has(c.codigo))) continue;
+        if (total + s.miembros.length > size) continue;
+        for (const m of grupo) { const d = d2(s, m); if (d < bd) { bd = d; best = s; } }
       }
       if (!best || bd > maxKm) break;
       grupo.push(best);
-      used.add(best.codigo);
+      total += best.miembros.length;
+      best.miembros.forEach((c) => usadosCod.add(c.codigo));
     }
-    return grupo;
+    return grupo.flatMap((s) => s.miembros);
   }
 
   /* ---------- Rutas a pie ---------- */
   function rutasAPie(clientes, cfg) {
     const rutas = [], sinRuta = [];
     for (const zona of ZONAS) {
-      const pool = clientes.filter((c) => c.zona === zona).sort((a, b) => b.dist - a.dist);
+      const poolCli = clientes.filter((c) => c.zona === zona).sort((a, b) => b.dist - a.dist);
+      const poolSitios = sitiosDe(poolCli, cfg.walkSize).sort((a, b) => b.dist - a.dist);
       const usados = new Set();
       const descartados = new Set();
-      for (const start of pool) {
-        if (usados.has(start.codigo) || descartados.has(start.codigo)) continue;
+      for (const start of poolSitios) {
+        if (start.miembros.some((c) => usados.has(c.codigo)) || descartados.has(start)) continue;
         const tmp = new Set(usados);
-        const g = crecer(start, pool, tmp, cfg.walkSize, cfg.walkMaxM / 1000);
+        const g = crecerSitios(start, poolSitios, tmp, cfg.walkSize, cfg.walkMaxM / 1000);
         if (g.length === cfg.walkSize) {
           g.forEach((c) => usados.add(c.codigo));
           rutas.push({ tipo: 'A pie', zona, clientes: g });
         } else {
-          descartados.add(start.codigo);
+          descartados.add(start);
         }
       }
     }
@@ -327,12 +366,13 @@
   function rutasCamioneta(clientes, cfg) {
     const rutas = [];
     for (const zona of ZONAS) {
-      const pool = clientes.filter((c) => c.zona === zona).sort((a, b) => b.dist - a.dist);
+      const poolCli = clientes.filter((c) => c.zona === zona).sort((a, b) => b.dist - a.dist);
+      const poolSitios = sitiosDe(poolCli, cfg.vanMax).sort((a, b) => b.dist - a.dist);
       const usados = new Set();
       const grupos = [];
-      for (const start of pool) {
-        if (usados.has(start.codigo)) continue;
-        grupos.push(crecer(start, pool, usados, cfg.vanMax, cfg.vanMaxHopKm));
+      for (const start of poolSitios) {
+        if (start.miembros.some((c) => usados.has(c.codigo))) continue;
+        grupos.push(crecerSitios(start, poolSitios, usados, cfg.vanMax, cfg.vanMaxHopKm));
       }
       // fusionar grupos chicos con el grupo mas cercano que tenga lugar
       const cent = (g) => ({ lat: g.reduce((s, c) => s + c.lat, 0) / g.length, lon: g.reduce((s, c) => s + c.lon, 0) / g.length });
@@ -445,12 +485,19 @@
       dias.push(...zonaDias);
     }
 
-    // recorte de camioneta si excede la jornada (minimo vanMin)
+    // recorte de camioneta si excede la jornada (minimo vanMin). Se saca del final de a un DOMICILIO entero
+    // por vez (nunca una parte de un mismo lugar), y si sacarlo entero rompe el minimo de la ruta, se prefiere
+    // dejarla mas larga que la jornada antes que partir un domicilio.
+    const clave = (c) => c.lat.toFixed(5) + '|' + c.lon.toFixed(5);
     const extra = [];
     dias.forEach((d) => {
       if (!d.van) return;
       while (d.van.clientes.length > cfg.vanMin && minutosCamioneta(d.van, d.walker, cfg) > cfg.jornadaMin) {
-        extra.push(d.van.clientes.pop());
+        const k = clave(d.van.clientes[d.van.clientes.length - 1]);
+        const hermanos = d.van.clientes.filter((c) => clave(c) === k);
+        if (d.van.clientes.length - hermanos.length < cfg.vanMin) break;
+        hermanos.forEach((c) => extra.push(c));
+        d.van.clientes = d.van.clientes.filter((c) => clave(c) !== k);
       }
       d.van.minutos = minutosCamioneta(d.van, d.walker, cfg);
       if (d.van.minutos > cfg.jornadaMin) d.van.excede = true;
