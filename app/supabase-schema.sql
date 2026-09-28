@@ -10,10 +10,13 @@ create table if not exists clientes (
   updated_at timestamptz default now()
 );
 
--- Historial de mantenimientos realizados (se usan los ultimos 3 por cliente)
+-- Historial de mantenimientos realizados (se usan los ultimos 3 por cliente).
+-- codigo_persat es texto libre, SIN referencia a "clientes": "Cerrar ciclo" borra todos los clientes
+-- pero conserva el historial de los ultimos 180 dias, para que si el cliente vuelve a aparecer en el
+-- proximo Excel no pierda el criterio Express/Profundo por el que va.
 create table if not exists historial (
   id bigint generated always as identity primary key,
-  codigo_persat text not null references clientes(codigo_persat) on delete cascade,
+  codigo_persat text not null,
   fecha date not null,
   tipo text default '',
   unique (codigo_persat, fecha)

@@ -334,10 +334,10 @@
     });
     $('btnCiclo').onclick = () => conEspera($('btnCiclo'), async () => {
       const DIAS_RETENER_HISTORIAL = 180;
-      if (!confirm(`Esto borra todos los pedidos del ciclo actual y, del historial, los mantenimientos de hace más de ${DIAS_RETENER_HISTORIAL} días (los clientes no se tocan). No se puede deshacer. ¿Cerrar el ciclo?`)) return;
+      if (!confirm(`Esto borra todos los clientes y los pedidos del ciclo actual. Del historial se conservan los últimos ${DIAS_RETENER_HISTORIAL} días (por si algún cliente vuelve a aparecer en el próximo Excel), el resto se borra. No se puede deshacer. ¿Cerrar el ciclo?`)) return;
       const corte = R.addDays(hoy(), -DIAS_RETENER_HISTORIAL);
-      await DB.clearPedidos(); await DB.podarHistorial(corte); await cargar(); mostrarAvisos([]); S.sel = null; S.selRuta = null;
-      toast(`Ciclo cerrado. Se conservó el historial de los últimos ${DIAS_RETENER_HISTORIAL} días. Importá el Excel nuevo o usá "Recalcular rutas".`);
+      await DB.clearPedidos(); await DB.clearClientes(); await DB.podarHistorial(corte); await cargar(); mostrarAvisos([]); S.sel = null; S.selRuta = null;
+      toast(`Ciclo cerrado. Importá el Excel nuevo para cargar los clientes del ciclo siguiente (se conservó su historial de los últimos ${DIAS_RETENER_HISTORIAL} días).`);
     });
     $('btnConfig').onclick = abrirConfig;
     $('cfgCancelar').onclick = () => $('dlgConfig').close();

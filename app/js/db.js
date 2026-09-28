@@ -59,7 +59,10 @@
       ck(await sb.from('mantenimientos').update(row).eq('codigo_persat', codigo));
     },
     async clearPedidos() { ck(await sb.from('mantenimientos').delete().neq('codigo_persat', '')); },
-    // borra del historial todo lo anterior a la fecha de corte (formato 'YYYY-MM-DD'); los clientes no se tocan
+    // borra todos los clientes (la lista se vuelve a cargar completa con el proximo Excel); el historial NO
+    // depende de "clientes" en el esquema, asi que esto no lo afecta.
+    async clearClientes() { ck(await sb.from('clientes').delete().neq('codigo_persat', '')); },
+    // borra del historial todo lo anterior a la fecha de corte (formato 'YYYY-MM-DD')
     async podarHistorial(fechaCorte) { ck(await sb.from('historial').delete().lt('fecha', fechaCorte)); },
     // autenticacion
     async sesion() { const { data } = await sb.auth.getSession(); return data.session; },
@@ -88,6 +91,7 @@
     },
     async updatePedido(codigo, patch) { wr(K.p, rd(K.p).map((p) => (p.codigo === codigo ? Object.assign(p, patch) : p))); },
     async clearPedidos() { wr(K.p, []); },
+    async clearClientes() { wr(K.c, []); },
     async podarHistorial(fechaCorte) { wr(K.h, rd(K.h).filter((h) => h.fecha >= fechaCorte)); },
     async sesion() { return true; },
     async login() {}, async logout() {}
