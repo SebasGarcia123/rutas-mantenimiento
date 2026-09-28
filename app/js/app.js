@@ -284,7 +284,7 @@
   }
 
   /* ---------------- Configuracion ---------------- */
-  const CAMPOS = { cInicio: ['cicloInicio'], cLat: ['centro', 'lat'], cLon: ['centro', 'lon'], cRadio: ['radioCentroKm'], cWalk: ['walkMaxM'], cVel: ['velocidadKmh'], cJornada: ['jornadaMin'], cExp: ['minExpress'], cProf: ['minProfundo'], cObj: ['diasObjetivo'], cTol: ['tolerancia'], cPrimera: ['tipoPrimeraVez'] };
+  const CAMPOS = { cInicio: ['cicloInicio'], cLat: ['centro', 'lat'], cLon: ['centro', 'lon'], cWalk: ['walkMaxM'], cVel: ['velocidadKmh'], cJornada: ['jornadaMin'], cExp: ['minExpress'], cProf: ['minProfundo'], cObj: ['diasObjetivo'], cTol: ['tolerancia'], cPrimera: ['tipoPrimeraVez'] };
   const leer = (o, path) => path.reduce((a, k) => (a == null ? a : a[k]), o);
   function abrirConfig() {
     const cfg = Object.assign({}, R.DEFAULTS, getCfg()); cfg.centro = Object.assign({}, R.DEFAULTS.centro, getCfg().centro);

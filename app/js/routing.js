@@ -4,18 +4,117 @@
 
   const DEFAULTS = {
     centro: { lat: -34.5990, lon: -58.4400 },   // Palermo - Villa Crespo: punto de convergencia de las 3 zonas
-    // Pueblos que marcan el limite de la zona "Lejana" (mas alla de ellos, no entran en el reparto por igual de Norte/Sur/Centro)
-    lejanaAnchors: [
-      { nombre: 'Zárate', lat: -34.098, lon: -59.024 },
-      { nombre: 'Pilar', lat: -34.458, lon: -58.914 },
-      { nombre: 'La Plata', lat: -34.921, lon: -57.953 },
-      { nombre: 'Luján', lat: -34.570, lon: -59.105 }
-    ],
-    // Pueblo de referencia de cada zona (define la direccion "hacia" la que apunta cada una)
-    zonaAnchors: [
-      { nombre: 'Norte', lat: -34.472, lon: -58.527 },   // San Isidro
-      { nombre: 'Sur', lat: -34.760, lon: -58.402 },     // Lomas de Zamora
-      { nombre: 'Centro', lat: -34.653, lon: -58.619 }   // Morón (zona oeste)
+    // Localidades de referencia. La zona de cada cliente es la del punto de este listado mas cercano.
+    // CABA: microcentro/Retiro/Puerto Madero/Recoleta y alrededores -> Sur; Belgrano/Nuñez/Saavedra/Palermo -> Norte; el resto -> Centro (se reparte con el balanceo).
+    // GBA: se usa la Zona Norte/Sur/Oeste habitual del Gran Buenos Aires (Oeste se muestra como "Centro" para no romper la nomenclatura Norte/Sur/Centro del resto de la app).
+    // Lejana: localidades mas alla del Gran Buenos Aires (no participan del reparto igualitario entre Norte/Sur/Centro).
+    zonaPuntos: [
+      // --- CABA: Sur (microcentro / Retiro / Puerto Madero / Recoleta y alrededores) ---
+      { nombre: 'Retiro', lat: -34.5925, lon: -58.3746, zona: 'Sur' },
+      { nombre: 'San Nicolás (Microcentro)', lat: -34.6037, lon: -58.3816, zona: 'Sur' },
+      { nombre: 'Monserrat', lat: -34.6117, lon: -58.3816, zona: 'Sur' },
+      { nombre: 'Puerto Madero', lat: -34.6111, lon: -58.3630, zona: 'Sur' },
+      { nombre: 'Recoleta', lat: -34.5875, lon: -58.3974, zona: 'Sur' },
+      { nombre: 'San Telmo', lat: -34.6211, lon: -58.3731, zona: 'Sur' },
+      { nombre: 'Constitución', lat: -34.6257, lon: -58.3808, zona: 'Sur' },
+      { nombre: 'Balvanera', lat: -34.6083, lon: -58.3987, zona: 'Sur' },
+      // --- CABA: Norte (Belgrano / Nuñez / Saavedra / Palermo) ---
+      { nombre: 'Belgrano', lat: -34.5601, lon: -58.4562, zona: 'Norte' },
+      { nombre: 'Núñez', lat: -34.5453, lon: -58.4634, zona: 'Norte' },
+      { nombre: 'Saavedra', lat: -34.5556, lon: -58.4869, zona: 'Norte' },
+      { nombre: 'Palermo', lat: -34.5885, lon: -58.4306, zona: 'Norte' },
+      // --- CABA: Centro (el resto de los barrios) ---
+      { nombre: 'Colegiales', lat: -34.5745, lon: -58.4507, zona: 'Centro' },
+      { nombre: 'Coghlan', lat: -34.5626, lon: -58.4652, zona: 'Centro' },
+      { nombre: 'Villa Urquiza', lat: -34.5709, lon: -58.4926, zona: 'Centro' },
+      { nombre: 'Chacarita', lat: -34.5869, lon: -58.4526, zona: 'Centro' },
+      { nombre: 'Villa Crespo', lat: -34.5996, lon: -58.4392, zona: 'Centro' },
+      { nombre: 'Paternal', lat: -34.5936, lon: -58.4661, zona: 'Centro' },
+      { nombre: 'Agronomía', lat: -34.5928, lon: -58.4869, zona: 'Centro' },
+      { nombre: 'Parque Chas', lat: -34.5847, lon: -58.4772, zona: 'Centro' },
+      { nombre: 'Villa Ortúzar', lat: -34.5799, lon: -58.4674, zona: 'Centro' },
+      { nombre: 'Villa Pueyrredón', lat: -34.5834, lon: -58.5023, zona: 'Centro' },
+      { nombre: 'Villa del Parque', lat: -34.6021, lon: -58.4931, zona: 'Centro' },
+      { nombre: 'Villa Devoto', lat: -34.5989, lon: -58.5228, zona: 'Centro' },
+      { nombre: 'Villa Santa Rita', lat: -34.6157, lon: -58.4933, zona: 'Centro' },
+      { nombre: 'Monte Castro', lat: -34.6187, lon: -58.5087, zona: 'Centro' },
+      { nombre: 'Vélez Sarsfield', lat: -34.6291, lon: -58.4963, zona: 'Centro' },
+      { nombre: 'Villa Luro', lat: -34.6383, lon: -58.5040, zona: 'Centro' },
+      { nombre: 'Floresta', lat: -34.6290, lon: -58.4690, zona: 'Centro' },
+      { nombre: 'Versalles', lat: -34.6323, lon: -58.5251, zona: 'Centro' },
+      { nombre: 'Liniers', lat: -34.6435, lon: -58.5228, zona: 'Centro' },
+      { nombre: 'Mataderos', lat: -34.6598, lon: -58.5030, zona: 'Centro' },
+      { nombre: 'Villa Lugano', lat: -34.6779, lon: -58.4744, zona: 'Centro' },
+      { nombre: 'Villa Riachuelo', lat: -34.6879, lon: -58.4636, zona: 'Centro' },
+      { nombre: 'Villa Soldati', lat: -34.6672, lon: -58.4392, zona: 'Centro' },
+      { nombre: 'Nueva Pompeya', lat: -34.6478, lon: -58.4223, zona: 'Centro' },
+      { nombre: 'Parque Patricios', lat: -34.6362, lon: -58.4038, zona: 'Centro' },
+      { nombre: 'Boedo', lat: -34.6295, lon: -58.4176, zona: 'Centro' },
+      { nombre: 'Caballito', lat: -34.6180, lon: -58.4407, zona: 'Centro' },
+      { nombre: 'Almagro', lat: -34.6083, lon: -58.4210, zona: 'Centro' },
+      { nombre: 'San Cristóbal', lat: -34.6198, lon: -58.4008, zona: 'Centro' },
+      { nombre: 'Barracas', lat: -34.6459, lon: -58.3872, zona: 'Centro' },
+      { nombre: 'Parque Chacabuco', lat: -34.6376, lon: -58.4363, zona: 'Centro' },
+      { nombre: 'Flores', lat: -34.6289, lon: -58.4633, zona: 'Centro' },
+      // --- Gran Buenos Aires: Zona Norte ---
+      { nombre: 'Vicente López', lat: -34.5260, lon: -58.4770, zona: 'Norte' },
+      { nombre: 'San Isidro', lat: -34.4720, lon: -58.5270, zona: 'Norte' },
+      { nombre: 'San Fernando', lat: -34.4410, lon: -58.5590, zona: 'Norte' },
+      { nombre: 'Tigre', lat: -34.4260, lon: -58.5800, zona: 'Norte' },
+      { nombre: 'Nordelta', lat: -34.4010, lon: -58.6520, zona: 'Norte' },
+      { nombre: 'San Miguel', lat: -34.5430, lon: -58.7120, zona: 'Norte' },
+      { nombre: 'José C. Paz', lat: -34.5120, lon: -58.7660, zona: 'Norte' },
+      { nombre: 'Malvinas Argentinas (Tortuguitas)', lat: -34.4700, lon: -58.7350, zona: 'Norte' },
+      { nombre: 'Escobar', lat: -34.3490, lon: -58.7910, zona: 'Norte' },
+      { nombre: 'Pilar', lat: -34.4580, lon: -58.9140, zona: 'Norte' },
+      { nombre: 'General San Martín', lat: -34.5750, lon: -58.5370, zona: 'Norte' },
+      // --- Gran Buenos Aires: Zona Oeste (se guarda como "Centro") ---
+      { nombre: 'Tres de Febrero (Caseros)', lat: -34.6010, lon: -58.5630, zona: 'Centro' },
+      { nombre: 'Hurlingham', lat: -34.5910, lon: -58.6370, zona: 'Centro' },
+      { nombre: 'Ituzaingó', lat: -34.6600, lon: -58.6710, zona: 'Centro' },
+      { nombre: 'Morón', lat: -34.6530, lon: -58.6190, zona: 'Centro' },
+      { nombre: 'Merlo', lat: -34.6650, lon: -58.7280, zona: 'Centro' },
+      { nombre: 'Moreno', lat: -34.6340, lon: -58.7920, zona: 'Centro' },
+      { nombre: 'La Matanza (San Justo)', lat: -34.6790, lon: -58.5630, zona: 'Centro' },
+      { nombre: 'General Rodríguez', lat: -34.6060, lon: -58.9580, zona: 'Centro' },
+      { nombre: 'Marcos Paz', lat: -34.7800, lon: -58.8410, zona: 'Centro' },
+      { nombre: 'Luján', lat: -34.5700, lon: -59.1050, zona: 'Centro' },
+      // --- Gran Buenos Aires: Zona Sur ---
+      { nombre: 'Avellaneda', lat: -34.6630, lon: -58.3650, zona: 'Sur' },
+      { nombre: 'Lanús', lat: -34.7060, lon: -58.3940, zona: 'Sur' },
+      { nombre: 'Lomas de Zamora', lat: -34.7600, lon: -58.4020, zona: 'Sur' },
+      { nombre: 'Quilmes', lat: -34.7200, lon: -58.2540, zona: 'Sur' },
+      { nombre: 'Almirante Brown (Adrogué)', lat: -34.7990, lon: -58.3930, zona: 'Sur' },
+      { nombre: 'Esteban Echeverría (Monte Grande)', lat: -34.8120, lon: -58.4620, zona: 'Sur' },
+      { nombre: 'Ezeiza', lat: -34.8480, lon: -58.5310, zona: 'Sur' },
+      { nombre: 'Florencio Varela', lat: -34.8220, lon: -58.2760, zona: 'Sur' },
+      { nombre: 'Berazategui', lat: -34.7660, lon: -58.2120, zona: 'Sur' },
+      { nombre: 'San Vicente', lat: -35.0300, lon: -58.4230, zona: 'Sur' },
+      { nombre: 'Presidente Perón (Guernica)', lat: -34.9750, lon: -58.5540, zona: 'Sur' },
+      { nombre: 'La Plata', lat: -34.9210, lon: -57.9530, zona: 'Sur' },
+      { nombre: 'Berisso', lat: -34.8760, lon: -57.8840, zona: 'Sur' },
+      { nombre: 'Ensenada', lat: -34.8550, lon: -57.9120, zona: 'Sur' },
+      // --- Lejana: mas alla del Gran Buenos Aires ---
+      { nombre: 'Zárate', lat: -34.0980, lon: -59.0240, zona: 'Lejana' },
+      { nombre: 'Campana', lat: -34.1640, lon: -58.9580, zona: 'Lejana' },
+      { nombre: 'Exaltación de la Cruz (Los Cardales)', lat: -34.2220, lon: -59.0780, zona: 'Lejana' },
+      { nombre: 'San Andrés de Giles', lat: -34.4430, lon: -59.4410, zona: 'Lejana' },
+      { nombre: 'Mercedes', lat: -34.6510, lon: -59.4310, zona: 'Lejana' },
+      { nombre: 'Navarro', lat: -35.0050, lon: -59.2720, zona: 'Lejana' },
+      { nombre: 'Cañuelas', lat: -35.0520, lon: -58.7600, zona: 'Lejana' },
+      { nombre: 'Lobos', lat: -35.1860, lon: -59.0980, zona: 'Lejana' },
+      { nombre: 'General Las Heras', lat: -34.9290, lon: -58.9430, zona: 'Lejana' },
+      { nombre: 'Chascomús', lat: -35.5750, lon: -58.0140, zona: 'Lejana' },
+      { nombre: 'Magdalena', lat: -35.0870, lon: -57.5160, zona: 'Lejana' },
+      { nombre: 'Brandsen', lat: -35.1660, lon: -58.2300, zona: 'Lejana' },
+      { nombre: 'Suipacha', lat: -34.7670, lon: -59.6740, zona: 'Lejana' },
+      { nombre: 'Chivilcoy', lat: -34.8970, lon: -60.0170, zona: 'Lejana' },
+      { nombre: 'Carmen de Areco', lat: -34.3970, lon: -59.8270, zona: 'Lejana' },
+      { nombre: 'Junín', lat: -34.5840, lon: -60.9490, zona: 'Lejana' },
+      { nombre: 'Baradero', lat: -33.8080, lon: -59.5070, zona: 'Lejana' },
+      { nombre: 'San Pedro', lat: -33.6780, lon: -59.6630, zona: 'Lejana' },
+      { nombre: 'San Nicolás', lat: -33.3360, lon: -60.2130, zona: 'Lejana' },
+      { nombre: 'Salto', lat: -34.2930, lon: -60.2530, zona: 'Lejana' }
     ],
     walkMaxM: 300,             // distancia maxima entre clientes de una ruta a pie
     walkSize: 6,
@@ -104,50 +203,46 @@
     return out;
   }
 
-  /* Zona "Lejana": mas alla del pueblo mas cercano (interpolado por rumbo) entre los limites cargados en cfg.lejanaAnchors.
-     Zonas Norte/Sur/Centro: cada cliente restante se asigna primero al pueblo de referencia mas cercano en rumbo
-     (cfg.zonaAnchors) y despues se balancea moviendo, de a uno, los clientes mas "al borde" hacia la zona con menos
-     clientes, hasta repartir la cantidad lo mas parejo posible entre las tres (la zona Lejana no participa del reparto). */
+  /* La zona de cada cliente es la del punto de cfg.zonaPuntos (barrios de CABA + partidos del Gran Buenos Aires +
+     localidades "Lejana") mas cercano. Con eso ya queda asignada Lejana (no participa del reparto) y una zona
+     inicial Norte/Sur/Centro; despues se balancea moviendo, de a uno, los clientes mas "al borde" (los que estan
+     casi igual de cerca de dos zonas) hacia la zona con menos clientes, hasta repartir la cantidad lo mas parejo
+     posible entre las tres. */
   function asignarZonas(clientes, cfg) {
-    const anchorsL = cfg.lejanaAnchors.map((a) => ({ nombre: a.nombre, bearing: bearingDeg(cfg.centro, a), dist: haversineKm(cfg.centro, a) })).sort((a, b) => a.bearing - b.bearing);
-    function limiteLejana(b) {
-      const n = anchorsL.length;
-      for (let i = 0; i < n; i++) {
-        const a1 = anchorsL[i], a2 = anchorsL[(i + 1) % n];
-        const b2 = i === n - 1 ? a2.bearing + 360 : a2.bearing;
-        const bb = b < a1.bearing ? b + 360 : b;
-        if (bb >= a1.bearing && bb <= b2) return a1.dist + (bb - a1.bearing) / (b2 - a1.bearing) * (a2.dist - a1.dist);
-      }
-      return Math.max(...anchorsL.map((a) => a.dist));
-    }
-
-    const anchorsZ = cfg.zonaAnchors.map((a) => ({ nombre: a.nombre, bearing: bearingDeg(cfg.centro, a) }));
+    const puntos = cfg.zonaPuntos;
     const libres = [];
     clientes.forEach((c) => {
-      if (c.dist > limiteLejana(c.bearing)) { c.zona = 'Lejana'; return; }
-      let best = anchorsZ[0].nombre, bd = Infinity;
-      anchorsZ.forEach((a) => { const d = angDist(c.bearing, a.bearing); if (d < bd) { bd = d; best = a.nombre; } });
-      c.zona = best; libres.push(c);
+      const dist = {};
+      let best = null, bd = Infinity;
+      puntos.forEach((p) => {
+        const d = haversineKm(c, p);
+        if (!(p.zona in dist) || d < dist[p.zona]) dist[p.zona] = d;
+        if (d < bd) { bd = d; best = p.zona; }
+      });
+      c.zona = best;
+      if (best === 'Lejana') return;
+      c._dist3 = dist; // distancia al punto mas cercano de cada zona Norte/Sur/Centro, para el balanceo
+      libres.push(c);
     });
 
-    const cuenta = {}; anchorsZ.forEach((a) => { cuenta[a.nombre] = 0; });
+    const zonas3 = ['Norte', 'Sur', 'Centro'];
+    const cuenta = {}; zonas3.forEach((z) => { cuenta[z] = 0; });
     libres.forEach((c) => cuenta[c.zona]++);
     let guard = 0;
     while (guard++ < libres.length * 2) {
-      const nombres = anchorsZ.map((a) => a.nombre);
-      const max = nombres.reduce((a, b) => (cuenta[a] >= cuenta[b] ? a : b));
-      const min = nombres.reduce((a, b) => (cuenta[a] <= cuenta[b] ? a : b));
+      const max = zonas3.reduce((a, b) => (cuenta[a] >= cuenta[b] ? a : b));
+      const min = zonas3.reduce((a, b) => (cuenta[a] <= cuenta[b] ? a : b));
       if (cuenta[max] - cuenta[min] <= 1) break;
-      const aMax = anchorsZ.find((a) => a.nombre === max), aMin = anchorsZ.find((a) => a.nombre === min);
       let cand = null, costo = Infinity;
       libres.forEach((c) => {
         if (c.zona !== max) return;
-        const k = angDist(c.bearing, aMin.bearing) - angDist(c.bearing, aMax.bearing);
+        const k = c._dist3[min] - c._dist3[max];
         if (k < costo) { costo = k; cand = c; }
       });
       if (!cand) break;
       cuenta[max]--; cand.zona = min; cuenta[min]++;
     }
+    libres.forEach((c) => { delete c._dist3; });
   }
 
   const d2 = (a, b) => haversineKm(a, b);
