@@ -333,8 +333,11 @@
       await recalcular();
     });
     $('btnCiclo').onclick = () => conEspera($('btnCiclo'), async () => {
-      if (!confirm('Esto borra TODO: los clientes, su historial de mantenimientos y las rutas del ciclo actual. No se puede deshacer. ¿Cerrar el ciclo y vaciar la base?')) return;
-      await DB.clearTodo(); await cargar(); mostrarAvisos([]); S.sel = null; S.selRuta = null; toast('Ciclo cerrado y base vacía. Importá el Excel nuevo para arrancar el ciclo siguiente.');
+      const DIAS_RETENER_HISTORIAL = 180;
+      if (!confirm(`Esto borra todos los pedidos del ciclo actual y, del historial, los mantenimientos de hace más de ${DIAS_RETENER_HISTORIAL} días (los clientes no se tocan). No se puede deshacer. ¿Cerrar el ciclo?`)) return;
+      const corte = R.addDays(hoy(), -DIAS_RETENER_HISTORIAL);
+      await DB.clearPedidos(); await DB.podarHistorial(corte); await cargar(); mostrarAvisos([]); S.sel = null; S.selRuta = null;
+      toast(`Ciclo cerrado. Se conservó el historial de los últimos ${DIAS_RETENER_HISTORIAL} días. Importá el Excel nuevo o usá "Recalcular rutas".`);
     });
     $('btnConfig').onclick = abrirConfig;
     $('cfgCancelar').onclick = () => $('dlgConfig').close();

@@ -59,8 +59,8 @@
       ck(await sb.from('mantenimientos').update(row).eq('codigo_persat', codigo));
     },
     async clearPedidos() { ck(await sb.from('mantenimientos').delete().neq('codigo_persat', '')); },
-    // borra clientes, historial y mantenimientos (historial/mantenimientos caen solos por la referencia "on delete cascade" del esquema)
-    async clearTodo() { ck(await sb.from('clientes').delete().neq('codigo_persat', '')); },
+    // borra del historial todo lo anterior a la fecha de corte (formato 'YYYY-MM-DD'); los clientes no se tocan
+    async podarHistorial(fechaCorte) { ck(await sb.from('historial').delete().lt('fecha', fechaCorte)); },
     // autenticacion
     async sesion() { const { data } = await sb.auth.getSession(); return data.session; },
     async login(email, password) { const r = await sb.auth.signInWithPassword({ email, password }); if (r.error) throw new Error(r.error.message); },
@@ -88,7 +88,7 @@
     },
     async updatePedido(codigo, patch) { wr(K.p, rd(K.p).map((p) => (p.codigo === codigo ? Object.assign(p, patch) : p))); },
     async clearPedidos() { wr(K.p, []); },
-    async clearTodo() { wr(K.c, []); wr(K.h, []); wr(K.p, []); },
+    async podarHistorial(fechaCorte) { wr(K.h, rd(K.h).filter((h) => h.fecha >= fechaCorte)); },
     async sesion() { return true; },
     async login() {}, async logout() {}
   };
