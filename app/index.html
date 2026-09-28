@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gestión de Rutas de Mantenimiento</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- Login (solo con Supabase) -->
+<div id="login" class="login hidden">
+  <form id="loginForm" class="card">
+    <h2>Ingresar</h2>
+    <label>Email <input type="email" id="loginEmail" required autocomplete="username"></label>
+    <label>Contraseña <input type="password" id="loginPass" required autocomplete="current-password"></label>
+    <button class="btn primary" type="submit">Entrar</button>
+    <p id="loginErr" class="err"></p>
+  </form>
+</div>
+
+<div id="app" class="hidden">
+  <header class="top">
+    <h1>Rutas de mantenimiento</h1>
+    <span id="modo" class="badge"></span>
+    <div class="spacer"></div>
+    <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" hidden>
+    <button class="btn" id="btnImportar">Importar Excel</button>
+    <button class="btn" id="btnPlantilla" title="Descargar Excel de ejemplo">Plantilla</button>
+    <button class="btn" id="btnRecalcular">Recalcular rutas</button>
+    <button class="btn primary" id="btnExportar">Exportar Excel</button>
+    <button class="btn" id="btnConfig" title="Parámetros">⚙</button>
+    <button class="btn danger" id="btnCiclo">Cerrar ciclo</button>
+    <button class="btn hidden" id="btnLogout">Salir</button>
+  </header>
+
+  <section class="filters">
+    <input type="search" id="fBuscar" placeholder="Buscar por nombre o código Persat…">
+    <select id="fEstado">
+      <option value="Todas">Todas</option>
+      <option value="Pendiente">Pendiente</option>
+      <option value="Realizado">Realizado</option>
+    </select>
+    <select id="fZona">
+      <option value="">Todas las zonas</option>
+      <option>Norte</option><option>Sur</option><option>Centro</option><option>Lejana</option>
+    </select>
+    <div class="seg" id="viewSeg">
+      <button data-v="lista">Lista</button>
+      <button data-v="ambas" class="on">Ambas</button>
+      <button data-v="mapa">Mapa</button>
+    </div>
+    <span id="contador" class="muted"></span>
+  </section>
+
+  <div id="avisos"></div>
+
+  <main id="main" class="ambas">
+    <div id="listaWrap" class="lista-wrap">
+      <table id="tabla">
+        <thead><tr>
+          <th>Código</th><th>Cliente</th><th>Zona</th><th>Ruta</th><th>N°</th><th>Ord.</th><th>Mantenimiento</th>
+          <th>Fecha prog.</th><th>Últimos 3</th><th>Cerrado</th><th>Horario</th><th>Estado</th><th></th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+      <p id="vacio" class="muted hidden">No hay pedidos. Importá un Excel de clientes para generar las rutas.</p>
+    </div>
+    <div id="mapa"></div>
+  </main>
+</div>
+
+<!-- Modal Cumplir -->
+<dialog id="dlgCumplir">
+  <form method="dialog" id="formCumplir" class="card">
+    <h3 id="cumplirTitulo">Registrar mantenimiento</h3>
+    <label>Fecha realizada <input type="date" id="cumplirFecha" required></label>
+    <label>Tipo <select id="cumplirTipo"><option>Express</option><option>Profundo</option></select></label>
+    <div class="row-end">
+      <button type="button" class="btn" id="cumplirCancelar">Cancelar</button>
+      <button type="submit" class="btn primary">Confirmar</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Modal Configuración -->
+<dialog id="dlgConfig">
+  <form method="dialog" id="formConfig" class="card cfg">
+    <h3>Parámetros</h3>
+    <label>Inicio del ciclo (primer día de rutas) <input type="date" id="cInicio"></label>
+    <label>Centro (lat) <input type="number" step="any" id="cLat"></label>
+    <label>Centro (lon) <input type="number" step="any" id="cLon"></label>
+    <label>Radio zona Centro (km) <input type="number" step="any" id="cRadio"></label>
+    <label>Distancia máx. entre clientes a pie (m) <input type="number" id="cWalk"></label>
+    <label>Velocidad camioneta (km/h) <input type="number" id="cVel"></label>
+    <label>Jornada (min) <input type="number" id="cJornada"></label>
+    <label>Minutos Express <input type="number" id="cExp"></label>
+    <label>Minutos Profundo <input type="number" id="cProf"></label>
+    <label>Días objetivo entre visitas <input type="number" id="cObj"></label>
+    <label>Tolerancia (± días) <input type="number" id="cTol"></label>
+    <label>Tipo sin historial <select id="cPrimera"><option>Profundo</option><option>Express</option></select></label>
+    <div class="row-end">
+      <button type="button" class="btn" id="cfgCancelar">Cancelar</button>
+      <button type="button" class="btn" id="cfgDefault">Restaurar</button>
+      <button type="submit" class="btn primary">Guardar</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script src="js/routing.js"></script>
+<script src="js/db.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
