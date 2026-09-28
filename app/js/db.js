@@ -59,6 +59,8 @@
       ck(await sb.from('mantenimientos').update(row).eq('codigo_persat', codigo));
     },
     async clearPedidos() { ck(await sb.from('mantenimientos').delete().neq('codigo_persat', '')); },
+    // borra clientes, historial y mantenimientos (historial/mantenimientos caen solos por la referencia "on delete cascade" del esquema)
+    async clearTodo() { ck(await sb.from('clientes').delete().neq('codigo_persat', '')); },
     // autenticacion
     async sesion() { const { data } = await sb.auth.getSession(); return data.session; },
     async login(email, password) { const r = await sb.auth.signInWithPassword({ email, password }); if (r.error) throw new Error(r.error.message); },
@@ -86,6 +88,7 @@
     },
     async updatePedido(codigo, patch) { wr(K.p, rd(K.p).map((p) => (p.codigo === codigo ? Object.assign(p, patch) : p))); },
     async clearPedidos() { wr(K.p, []); },
+    async clearTodo() { wr(K.c, []); wr(K.h, []); wr(K.p, []); },
     async sesion() { return true; },
     async login() {}, async logout() {}
   };

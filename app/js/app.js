@@ -137,12 +137,13 @@
   /* ---------------- Filtrado y render ---------------- */
   function filtrados() {
     const q = R.norm($('fBuscar').value).trim();
-    const est = $('fEstado').value, zona = $('fZona').value;
+    const est = $('fEstado').value, zona = $('fZona').value, tipoRuta = $('fTipoRuta').value;
     const rows = [];
     S.pedidos.forEach((p) => {
       const c = S.clientes.get(p.codigo); if (!c) return;
       if (est !== 'Todas' && p.estado !== est) return;
       if (zona && p.zona !== zona) return;
+      if (tipoRuta && p.tipoRuta !== tipoRuta) return;
       if (q && !(R.norm(c.nombre).includes(q) || R.norm(p.codigo).includes(q))) return;
       rows.push({ p, c });
     });
@@ -215,7 +216,7 @@
       if (pts.length > 1) polyline = L.polyline(pts, { color: r.tipo === 'A pie' ? '#1565c0' : '#ef6c00', weight: 2, opacity: 0.6, dashArray: r.tipo === 'A pie' ? '4 4' : null }).addTo(capa);
       rutas.set(k, { polyline, codigos: r.codigos, bounds: pts });
     });
-    if (bounds.length && (primeraVez || $('fBuscar').value || $('fEstado').value !== 'Todas' || $('fZona').value)) {
+    if (bounds.length && (primeraVez || $('fBuscar').value || $('fEstado').value !== 'Todas' || $('fZona').value || $('fTipoRuta').value)) {
       map.fitBounds(bounds, { padding: [30, 30], maxZoom: 15 }); primeraVez = false;
     }
     resaltarRuta(S.selRuta);
@@ -332,8 +333,8 @@
       await recalcular();
     });
     $('btnCiclo').onclick = () => conEspera($('btnCiclo'), async () => {
-      if (!confirm('Esto borra todos los pedidos del ciclo actual (el historial y los clientes se conservan). ¿Cerrar el ciclo?')) return;
-      await DB.clearPedidos(); await cargar(); mostrarAvisos([]); toast('Ciclo cerrado. Importá el nuevo Excel o usá "Recalcular rutas".');
+      if (!confirm('Esto borra TODO: los clientes, su historial de mantenimientos y las rutas del ciclo actual. No se puede deshacer. ¿Cerrar el ciclo y vaciar la base?')) return;
+      await DB.clearTodo(); await cargar(); mostrarAvisos([]); S.sel = null; S.selRuta = null; toast('Ciclo cerrado y base vacía. Importá el Excel nuevo para arrancar el ciclo siguiente.');
     });
     $('btnConfig').onclick = abrirConfig;
     $('cfgCancelar').onclick = () => $('dlgConfig').close();
@@ -341,7 +342,7 @@
     $('formConfig').onsubmit = guardarConfig;
     $('cumplirCancelar').onclick = () => $('dlgCumplir').close();
     $('formCumplir').onsubmit = () => { confirmarCumplir().catch((e) => alert('Error: ' + e.message)); };
-    ['fBuscar', 'fEstado', 'fZona'].forEach((id) => $(id).addEventListener('input', render));
+    ['fBuscar', 'fEstado', 'fZona', 'fTipoRuta'].forEach((id) => $(id).addEventListener('input', render));
     $('viewSeg').onclick = (e) => {
       const b = e.target.closest('button'); if (!b) return;
       S.vista = b.dataset.v; $('main').className = S.vista;

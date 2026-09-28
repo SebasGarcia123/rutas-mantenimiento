@@ -16,4 +16,5 @@ Sin configurar Supabase funciona en **modo local** (datos solo en ese navegador)
 ## Tablas
 - `clientes`: datos del Excel.
 - `historial`: mantenimientos realizados (se usan los últimos 3 por cliente).
-- `mantenimientos`: pedidos del ciclo actual; "Cerrar ciclo" la vacía.
+- `mantenimientos`: pedidos del ciclo actual.
+- "Cerrar ciclo" vacía las tres tablas (clientes, historial y mantenimientos) para volver a arrancar de cero con el próximo Excel.
