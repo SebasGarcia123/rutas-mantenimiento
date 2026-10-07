@@ -172,8 +172,10 @@
   }
 
   /* ---------- Tipo de mantenimiento: ciclo 2 express + 1 profundo ---------- */
-  function tipoSiguiente(hist, cfg) {
-    if (!hist || !hist.length) return cfg.tipoPrimeraVez;
+  function tipoSiguiente(histCompleto, cfg) {
+    // una "Instalacion" sirve como fecha de referencia (objetivo de 60 dias) pero no es un mantenimiento hecho
+    const hist = (histCompleto || []).filter((h) => !norm(h.tipo).startsWith('instal'));
+    if (!hist.length) return cfg.tipoPrimeraVez;
     const t = hist.map((h) => norm(h.tipo));
     if (t[0] === 'profundo') return 'Express';
     if (t[0] === 'express' && t[1] === 'express') return 'Profundo';

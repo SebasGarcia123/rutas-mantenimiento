@@ -75,9 +75,17 @@
     const cNom = find((x) => /nombre|cliente/.test(x.k));
     const cDias = find((x) => /cerrad/.test(x.k));
     const cHor = find((x) => /horario/.test(x.k));
-    const cFechas = H.filter((x) => /(fecha|ultim|mantenim)/.test(x.k) && !/tipo/.test(x.k) && x.h !== cCod).map((x) => x.h);
+    // "ULT. MANT" (ultimo mantenimiento) y "FECHA INSTAL." (instalacion): solo se usan como punto de partida
+    // para un cliente que todavia no tiene historial (ver importar). El resto de las columnas con "fecha"/"ultimo"
+    // en el nombre se siguen leyendo como historial, salvo las de instalacion, proximo y cambio (no son visitas).
+    const cUlt = find((x) => /^ultmant/.test(x.k));
+    const cInst = find((x) => /^fechainstal|^instalacion/.test(x.k));
+    const cFechas = H.filter((x) => /(fecha|ultim|mantenim)/.test(x.k) && !/tipo|instal|prox|cambio/.test(x.k) && x.h !== cCod && x.h !== cUlt && x.h !== cInst).map((x) => x.h);
     const cTipos = H.filter((x) => /tipo/.test(x.k) && !/ruta/.test(x.k)).map((x) => x.h);
     if (!cCod || !cLat || !cLon) return { clientes, historial, errores: ['Faltan columnas obligatorias: ID, Latitud, Longitud.'] };
+    const anioMax = new Date().getFullYear() + 1;
+    const fechaValida = (v) => { const f = fechasDeCelda(v)[0]; return f && +f.fecha.slice(0, 4) >= 2000 && +f.fecha.slice(0, 4) <= anioMax ? f.fecha : null; };
+    const referencias = [];
 
     rows.forEach((r, i) => {
       const fila = i + 2;
@@ -95,20 +103,31 @@
         fs.forEach((f) => { if (!f.tipo && cTipos[idx]) f.tipo = R.norm(r[cTipos[idx]]).startsWith('prof') ? 'Profundo' : R.norm(r[cTipos[idx]]).startsWith('exp') ? 'Express' : ''; hs.push(f); });
       });
       hs.sort((a, b) => (a.fecha < b.fecha ? 1 : -1)).slice(0, 3).forEach((f) => historial.push({ codigo, fecha: f.fecha, tipo: f.tipo }));
+      // punto de partida si el cliente no tiene historial: ULT. MANT; si esa celda esta vacia es un cliente nuevo -> FECHA INSTAL.
+      if (!hs.length) {
+        const ult = cUlt ? fechaValida(r[cUlt]) : null;
+        const inst = !ult && cInst ? fechaValida(r[cInst]) : null;
+        if (ult) referencias.push({ codigo, fecha: ult, tipo: '', origen: 'ult' });
+        else if (inst) referencias.push({ codigo, fecha: inst, tipo: 'Instalación', origen: 'instal' });
+      }
     });
-    return { clientes, historial, errores };
+    return { clientes, historial, referencias, errores };
   }
 
   async function importar(file) {
     const buf = await file.arrayBuffer();
     const wb = XLSX.read(buf, { type: 'array' });
     const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '', raw: true });
-    const { clientes, historial, errores } = parseExcel(rows);
+    const { clientes, historial, referencias, errores } = parseExcel(rows);
     if (!clientes.length) { alert(errores.join('\n') || 'No se encontraron clientes.'); return; }
+    // solo la PRIMERA vez: si el cliente ya tiene historial en la base, se usa ese y se ignoran ULT. MANT / FECHA INSTAL.
+    const semillas = (referencias || []).filter((rf) => !(S.historial.get(rf.codigo) || []).length);
+    const nuevos = semillas.filter((rf) => rf.origen === 'instal').length;
     await DB.upsertClientes(clientes);
-    await DB.addHistorial(historial);
+    await DB.addHistorial(historial.concat(semillas.map((rf) => ({ codigo: rf.codigo, fecha: rf.fecha, tipo: rf.tipo }))));
     await cargar();
     let msg = `${clientes.length} clientes importados.`;
+    if (semillas.length) msg += ` ${semillas.length - nuevos} con último mantenimiento del Excel, ${nuevos} nuevos (fecha de instalación).`;
     if (errores.length) msg += ` ${errores.length} filas con problemas (ver consola).`;
     if (errores.length) console.warn(errores.join('\n'));
     toast(msg);
