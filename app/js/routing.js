@@ -176,12 +176,14 @@
     // una "Instalacion" sirve como fecha de referencia (objetivo de 60 dias) pero no es un mantenimiento hecho
     const hist = (histCompleto || []).filter((h) => !norm(h.tipo).startsWith('instal'));
     if (!hist.length) return cfg.tipoPrimeraVez;
-    const t = hist.map((h) => norm(h.tipo));
-    if (t[0] === 'profundo') return 'Express';
-    if (t[0] === 'express' && t[1] === 'express') return 'Profundo';
-    if (t[0] === 'express') return 'Express';
-    // tipos desconocidos en el historial: si no hay ningun profundo registrado, tocaria profundo
-    return hist.length >= 3 && !t.includes('profundo') ? 'Profundo' : 'Express';
+    const t = hist.map((h) => norm(h.tipo)); // de la mas reciente a la mas vieja; '' = tipo desconocido (p. ej. ULT. MANT del Excel)
+    // Ciclo: Profundo, Express, Express, Profundo... Si hay un Profundo conocido, las visitas posteriores (aunque su tipo
+    // no se conozca) ocupan los lugares siguientes del ciclo: 0 o 1 visitas despues -> Express, 2 -> Profundo.
+    const iP = t.findIndex((x) => x.startsWith('prof'));
+    if (iP >= 0) return iP % 3 === 2 ? 'Profundo' : 'Express';
+    // sin ningun Profundo conocido: dos Express seguidos, o tres visitas sin Profundo, indican que toca Profundo
+    if (t[0].startsWith('exp') && t[1] && t[1].startsWith('exp')) return 'Profundo';
+    return hist.length >= 3 ? 'Profundo' : 'Express';
   }
 
   /* ---------- Preparacion ---------- */
@@ -197,7 +199,9 @@
         diasCerrados: c.diasCerrados || '', horario: c.horario || '',
         cerrados: parseDiasCerrados(c.diasCerrados),
         historial: hist,
-        tipoMant: tipoSiguiente(hist, cfg),
+        inhabilitado: !!c.inhabilitado,
+        // cliente inhabilitado (estado de deuda): el mantenimiento que se genera es siempre Express
+        tipoMant: c.inhabilitado ? 'Express' : tipoSiguiente(hist, cfg),
         objetivo
       };
     });
@@ -559,6 +563,7 @@
         if (!r) return;
         r.clientes.forEach((c, i) => {
           const obs = [];
+          if (c.inhabilitado) obs.push('Cliente inhabilitado');
           if (c.cerrados.has(diaSemana(d.fecha))) obs.push('Cliente cerrado el dia programado');
           if (c.objetivo) {
             const desvio = diffDays(d.fecha, c.objetivo);

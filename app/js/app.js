@@ -83,8 +83,10 @@
     const cFechas = H.filter((x) => /(fecha|ultim|mantenim)/.test(x.k) && !/tipo|instal|prox|cambio/.test(x.k) && x.h !== cCod && x.h !== cUlt && x.h !== cInst).map((x) => x.h);
     const cTipos = H.filter((x) => /tipo/.test(x.k) && !/ruta/.test(x.k)).map((x) => x.h);
     if (!cCod || !cLat || !cLon) return { clientes, historial, errores: ['Faltan columnas obligatorias: ID, Latitud, Longitud.'] };
-    const anioMax = new Date().getFullYear() + 1;
-    const fechaValida = (v) => { const f = fechasDeCelda(v)[0]; return f && +f.fecha.slice(0, 4) >= 2000 && +f.fecha.slice(0, 4) <= anioMax ? f.fecha : null; };
+    // "Estado de deuda" (o, si no existe esa columna, "ESTADO"): si dice "Inhabilitado" el mantenimiento sale Express con la leyenda "Cliente inhabilitado"
+    const cDeuda = find((x) => /^estadodedeuda|^estadodeuda|^deuda/.test(x.k)) || find((x) => /^estado$/.test(x.k));
+    const hoyIso = hoy();
+    const fechaValida = (v) => { const f = fechasDeCelda(v)[0]; return f && +f.fecha.slice(0, 4) >= 2000 && f.fecha <= hoyIso ? f.fecha : null; };
     const referencias = [];
 
     rows.forEach((r, i) => {
@@ -95,7 +97,8 @@
       if (isNaN(x) || isNaN(y)) { errores.push(`Fila ${fila} (${codigo}): coordenadas inválidas.`); return; }
       if (formatoViejo && Math.abs(x) < Math.abs(y)) [x, y] = [y, x]; // formato viejo: X = longitud (~-58), Y = latitud (~-34)
       if (y < -56 || y > -21 || x < -74 || x > -53) { errores.push(`Fila ${fila} (${codigo}): coordenadas fuera de Argentina (lat ${y}, lon ${x}).`); return; }
-      clientes.push({ codigo, x, y, nombre: cNom ? String(r[cNom]).trim() : codigo, diasCerrados: cDias ? String(r[cDias]).trim() : '', horario: cHor ? String(r[cHor]).trim() : '' });
+      const inhabilitado = cDeuda ? R.norm(r[cDeuda]).trim().startsWith('inhabilit') : false;
+      clientes.push({ codigo, x, y, nombre: cNom ? String(r[cNom]).trim() : codigo, diasCerrados: cDias ? String(r[cDias]).trim() : '', horario: cHor ? String(r[cHor]).trim() : '', inhabilitado });
       // historial: ultimas 3 fechas; el tipo puede venir en columnas "Tipo" (mismo orden) o dentro del texto de la celda
       const hs = [];
       cFechas.forEach((col, idx) => {
@@ -103,13 +106,8 @@
         fs.forEach((f) => { if (!f.tipo && cTipos[idx]) f.tipo = R.norm(r[cTipos[idx]]).startsWith('prof') ? 'Profundo' : R.norm(r[cTipos[idx]]).startsWith('exp') ? 'Express' : ''; hs.push(f); });
       });
       hs.sort((a, b) => (a.fecha < b.fecha ? 1 : -1)).slice(0, 3).forEach((f) => historial.push({ codigo, fecha: f.fecha, tipo: f.tipo }));
-      // punto de partida si el cliente no tiene historial: ULT. MANT; si esa celda esta vacia es un cliente nuevo -> FECHA INSTAL.
-      if (!hs.length) {
-        const ult = cUlt ? fechaValida(r[cUlt]) : null;
-        const inst = !ult && cInst ? fechaValida(r[cInst]) : null;
-        if (ult) referencias.push({ codigo, fecha: ult, tipo: '', origen: 'ult' });
-        else if (inst) referencias.push({ codigo, fecha: inst, tipo: 'Instalación', origen: 'instal' });
-      }
+      // fechas de referencia del Excel (ULT. MANT y FECHA INSTAL.); importar decide cuando usarlas segun el historial de la base
+      referencias.push({ codigo, ult: cUlt ? fechaValida(r[cUlt]) : null, inst: cInst ? fechaValida(r[cInst]) : null, conHistArchivo: hs.length > 0 });
     });
     return { clientes, historial, referencias, errores };
   }
@@ -120,14 +118,33 @@
     const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '', raw: true });
     const { clientes, historial, referencias, errores } = parseExcel(rows);
     if (!clientes.length) { alert(errores.join('\n') || 'No se encontraron clientes.'); return; }
-    // solo la PRIMERA vez: si el cliente ya tiene historial en la base, se usa ese y se ignoran ULT. MANT / FECHA INSTAL.
-    const semillas = (referencias || []).filter((rf) => !(S.historial.get(rf.codigo) || []).length);
-    const nuevos = semillas.filter((rf) => rf.origen === 'instal').length;
+    // Primera vez (cliente sin historial en la base): ULT. MANT; si esa celda esta vacia es un cliente nuevo -> FECHA INSTAL.
+    // Desde la segunda vez: se usa el historial de la base y, si el ULT. MANT del Excel es una visita mas reciente que la
+    // ultima registrada (hecha por fuera de la herramienta), se suma al historial. Si coincide (+/- TOL dias) con una ya
+    // registrada no se duplica. Su tipo se infiere en el motor segun la posicion en el ciclo Express, Express, Profundo.
+    const TOL = 5, primera = getCfg().tipoPrimeraVez || R.DEFAULTS.tipoPrimeraVez;
+    const semillas = []; let nuevos = 0, desdeUlt = 0, actualizados = 0;
+    (referencias || []).forEach((rf) => {
+      if (rf.conHistArchivo) return;
+      const hist = S.historial.get(rf.codigo) || [];
+      if (!hist.length) {
+        if (rf.ult) { semillas.push({ codigo: rf.codigo, fecha: rf.ult, tipo: '' }); desdeUlt++; }
+        else if (rf.inst) { semillas.push({ codigo: rf.codigo, fecha: rf.inst, tipo: 'Instalación' }); nuevos++; }
+      } else if (rf.ult && rf.ult > R.addDays(hist[0].fecha, TOL)) {
+        // si lo unico que habia era la instalacion, esta primera visita fue del tipo "primera vez"
+        const soloInstalacion = hist.every((h) => R.norm(h.tipo).startsWith('instal'));
+        semillas.push({ codigo: rf.codigo, fecha: rf.ult, tipo: soloInstalacion ? primera : '' }); actualizados++;
+      }
+    });
     await DB.upsertClientes(clientes);
-    await DB.addHistorial(historial.concat(semillas.map((rf) => ({ codigo: rf.codigo, fecha: rf.fecha, tipo: rf.tipo }))));
+    await DB.addHistorial(historial.concat(semillas));
     await cargar();
+    const inhab = clientes.filter((c) => c.inhabilitado).length;
     let msg = `${clientes.length} clientes importados.`;
-    if (semillas.length) msg += ` ${semillas.length - nuevos} con último mantenimiento del Excel, ${nuevos} nuevos (fecha de instalación).`;
+    if (desdeUlt || nuevos) msg += ` ${desdeUlt} con último mantenimiento del Excel, ${nuevos} nuevos (fecha de instalación).`;
+    if (actualizados) msg += ` ${actualizados} con un último mantenimiento más reciente que el historial.`;
+    if (inhab) msg += ` ${inhab} inhabilitados.`;
+    if (DB.faltaColumnaInhabilitado) alert('Falta correr el SQL de la columna "inhabilitado" en Supabase (ver app/supabase-schema.sql). Los clientes inhabilitados NO se guardaron como tales.');
     if (errores.length) msg += ` ${errores.length} filas con problemas (ver consola).`;
     if (errores.length) console.warn(errores.join('\n'));
     toast(msg);
@@ -219,7 +236,7 @@
       const color = done ? '#2e7d32' : '#d32f2f';
       const m = L.circleMarker([c.y, c.x], { radius: 7, color: '#fff', weight: 1.5, fillColor: color, fillOpacity: 0.95 }).addTo(capa);
       m.bindTooltip(esc(c.nombre), { permanent: permanente, direction: 'top', className: 'nombre', offset: [0, -4] });
-      m.bindPopup(`<b>${esc(c.nombre)}</b><br>${esc(p.codigo)}<br>${esc(p.tipoRuta)} ${p.numRuta} · orden ${p.orden} · ${esc(p.zona)}<br>${esc(p.tipoMant)} · ${fmtF(p.fechaProgramada)}<br>${esc(c.diasCerrados ? 'Cerrado: ' + c.diasCerrados : '')}<br>${esc(c.horario ? 'Horario: ' + c.horario : '')}<br>` +
+      m.bindPopup(`<b>${esc(c.nombre)}</b><br>${esc(p.codigo)}<br>${esc(p.tipoRuta)} ${p.numRuta} · orden ${p.orden} · ${esc(p.zona)}<br>${esc(p.tipoMant)} · ${fmtF(p.fechaProgramada)}<br>${esc(c.diasCerrados ? 'Cerrado: ' + c.diasCerrados : '')}<br>${esc(c.horario ? 'Horario: ' + c.horario : '')}<br>${p.obs ? '<b>' + esc(p.obs) + '</b><br>' : ''}` +
         (done ? `<b style="color:#2e7d32">Realizado ${fmtF(p.fechaRealizado)}</b>` : `<button data-cumplir="${esc(p.codigo)}">Cumplir</button>`));
       m.on('click', () => seleccionar(p.codigo, false));
       marcadores.set(p.codigo, m);

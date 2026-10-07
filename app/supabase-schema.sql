@@ -7,6 +7,7 @@ create table if not exists clientes (
   nombre text,
   dias_cerrados text default '',
   horario text default '',
+  inhabilitado boolean default false,   -- estado de deuda 'Inhabilitado': el mantenimiento sale Express con la leyenda 'Cliente inhabilitado'
   updated_at timestamptz default now()
 );
 
@@ -45,3 +46,6 @@ alter table mantenimientos enable row level security;
 create policy "auth all" on clientes for all to authenticated using (true) with check (true);
 create policy "auth all" on historial for all to authenticated using (true) with check (true);
 create policy "auth all" on mantenimientos for all to authenticated using (true) with check (true);
+
+-- Si la base ya estaba creada antes de agregar la columna, correr esto una sola vez:
+-- alter table clientes add column if not exists inhabilitado boolean default false;

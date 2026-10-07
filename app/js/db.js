@@ -10,8 +10,8 @@
   const ck = (r) => { if (r.error) throw new Error(r.error.message); return r.data; };
 
   /* --- filas <-> objetos de la app --- */
-  const cliToRow = (c) => ({ codigo_persat: c.codigo, x: c.x, y: c.y, nombre: c.nombre, dias_cerrados: c.diasCerrados || '', horario: c.horario || '' });
-  const rowToCli = (r) => ({ codigo: r.codigo_persat, x: r.x, y: r.y, nombre: r.nombre, diasCerrados: r.dias_cerrados || '', horario: r.horario || '' });
+  const cliToRow = (c) => ({ codigo_persat: c.codigo, x: c.x, y: c.y, nombre: c.nombre, dias_cerrados: c.diasCerrados || '', horario: c.horario || '', inhabilitado: !!c.inhabilitado });
+  const rowToCli = (r) => ({ codigo: r.codigo_persat, x: r.x, y: r.y, nombre: r.nombre, diasCerrados: r.dias_cerrados || '', horario: r.horario || '', inhabilitado: !!r.inhabilitado });
   const pedToRow = (p) => ({
     codigo_persat: p.codigo, tipo_ruta: p.tipoRuta, num_ruta: p.numRuta, tipo_mantenimiento: p.tipoMant, zona: p.zona,
     orden: p.orden, fecha_programada: p.fechaProgramada, obs: p.obs || '', estado: p.estado || 'Pendiente',
@@ -30,7 +30,16 @@
       for (;;) { const d = ck(await sb.from('clientes').select('*').range(from, from + 999)); out.push(...d); if (d.length < 1000) break; from += 1000; }
       return out.map(rowToCli);
     },
-    async upsertClientes(list) { for (const c of chunk(list.map(cliToRow), 500)) ck(await sb.from('clientes').upsert(c)); },
+    async upsertClientes(list) {
+      const rows = list.map(cliToRow);
+      try { for (const c of chunk(rows, 500)) ck(await sb.from('clientes').upsert(c)); }
+      catch (e) {
+        // si la columna 'inhabilitado' todavia no existe en Supabase, se guarda todo lo demas y se avisa
+        if (!/inhabilitado/i.test(e.message)) throw e;
+        window.DB.faltaColumnaInhabilitado = true;
+        for (const c of chunk(rows.map(({ inhabilitado, ...r }) => r), 500)) ck(await sb.from('clientes').upsert(c));
+      }
+    },
     async getHistorial() {
       const out = []; let from = 0;
       for (;;) { const d = ck(await sb.from('historial').select('codigo_persat,fecha,tipo').range(from, from + 999)); out.push(...d); if (d.length < 1000) break; from += 1000; }
