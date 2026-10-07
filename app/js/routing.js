@@ -130,6 +130,10 @@
     tolerancia: 7,
     tipoPrimeraVez: 'Profundo',
     cicloInicio: null,         // 'YYYY-MM-DD'
+    // Mientras no haya historial con el tipo registrado, en cada ruta se reparten asi los mantenimientos Profundo
+    // entre los clientes cuyo tipo no se puede deducir (los demas siguen el ciclo Express, Express, Profundo).
+    profundosPorRutaAPie: 2,       // de los 6 de una ruta a pie
+    profundosPorRutaCamioneta: 2,  // de los 4 (o hasta 6) de una ruta en camioneta
     numeroInicial: 1           // primer numero de ruta a asignar
   };
 
@@ -200,6 +204,8 @@
         cerrados: parseDiasCerrados(c.diasCerrados),
         historial: hist,
         inhabilitado: !!c.inhabilitado,
+        // tipo deducible: inhabilitado (siempre Express) o historial con al menos un mantenimiento de tipo conocido
+        tipoDeterminado: !!c.inhabilitado || hist.some((h) => /^(prof|exp)/.test(norm(h.tipo))),
         // cliente inhabilitado (estado de deuda): el mantenimiento que se genera es siempre Express
         tipoMant: c.inhabilitado ? 'Express' : tipoSiguiente(hist, cfg),
         objetivo
@@ -341,6 +347,21 @@
     return grupo.flatMap((s) => s.miembros);
   }
 
+  /* Reparte los Profundo de una ruta: los clientes con tipo deducible (ciclo con historial / inhabilitados) quedan como estan
+     y cuentan para el total; el resto, sin historial con tipo, se completa hasta 'objetivo' Profundo, empezando por los de
+     ultima visita (o instalacion) mas vieja, y los demas quedan Express. Para rutas de menos de 4, hasta la mitad. */
+  function asignarProfundos(clientes, objetivoCfg) {
+    const objetivo = Math.min(objetivoCfg, Math.floor(clientes.length / 2));
+    const fijos = clientes.filter((c) => c.tipoDeterminado).filter((c) => c.tipoMant === 'Profundo').length;
+    const libres = clientes.filter((c) => !c.tipoDeterminado)
+      .sort((a, b) => ((a.historial[0] ? a.historial[0].fecha : '') < (b.historial[0] ? b.historial[0].fecha : '') ? -1 : 1));
+    const cuantos = Math.max(0, objetivo - fijos);
+    libres.forEach((c, i) => { c.tipoMant = i < cuantos ? 'Profundo' : 'Express'; });
+  }
+  function profundosDe(ruta, cfg) {
+    asignarProfundos(ruta.clientes, ruta.tipo === 'A pie' ? cfg.profundosPorRutaAPie : cfg.profundosPorRutaCamioneta);
+  }
+
   /* ---------- Rutas a pie ---------- */
   function rutasAPie(clientes, cfg) {
     const rutas = [], sinRuta = [];
@@ -468,6 +489,7 @@
     const van = rutasCamioneta(pie.resto, cfg);
     pie.rutas.forEach((r) => { r.clientes = ordenar(r.clientes); });
     van.forEach((r) => { r.clientes = ordenar(r.clientes); });
+    pie.rutas.concat(van).forEach((r) => profundosDe(r, cfg));
 
     // 3) armar "dias": un tecnico a pie + una camioneta de su misma zona
     const dias = [];
@@ -517,6 +539,12 @@
         });
       });
     }
+
+    // despues del recorte las rutas cambiaron de integrantes: se reparten de nuevo los Profundo y se recalculan los tiempos
+    dias.forEach((d) => {
+      [d.walker, d.van].forEach((r) => { if (r) profundosDe(r, cfg); });
+      if (d.van) { d.van.minutos = minutosCamioneta(d.van, d.walker, cfg); d.van.excede = d.van.minutos > cfg.jornadaMin; }
+    });
 
     // fecha objetivo de cada dia = promedio de los objetivos de sus clientes con historial
     dias.forEach((d) => {

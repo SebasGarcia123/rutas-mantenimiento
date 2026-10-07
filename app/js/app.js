@@ -341,7 +341,7 @@
     .sort((a, b) => a.p.numRuta - b.p.numRuta || (a.p.tipoRuta === b.p.tipoRuta ? 0 : a.p.tipoRuta === 'A pie' ? -1 : 1) || a.p.orden - b.p.orden);
 
   /* ---------------- Configuracion ---------------- */
-  const CAMPOS = { cInicio: ['cicloInicio'], cLat: ['centro', 'lat'], cLon: ['centro', 'lon'], cWalk: ['walkMaxM'], cVel: ['velocidadKmh'], cJornada: ['jornadaMin'], cExp: ['minExpress'], cProf: ['minProfundo'], cObj: ['diasObjetivo'], cTol: ['tolerancia'], cPrimera: ['tipoPrimeraVez'] };
+  const CAMPOS = { cInicio: ['cicloInicio'], cLat: ['centro', 'lat'], cLon: ['centro', 'lon'], cWalk: ['walkMaxM'], cVel: ['velocidadKmh'], cJornada: ['jornadaMin'], cExp: ['minExpress'], cProf: ['minProfundo'], cObj: ['diasObjetivo'], cTol: ['tolerancia'], cPrimera: ['tipoPrimeraVez'], cPPie: ['profundosPorRutaAPie'], cPVan: ['profundosPorRutaCamioneta'] };
   const leer = (o, path) => path.reduce((a, k) => (a == null ? a : a[k]), o);
   function abrirConfig() {
     const cfg = Object.assign({}, R.DEFAULTS, getCfg()); cfg.centro = Object.assign({}, R.DEFAULTS.centro, getCfg().centro);
