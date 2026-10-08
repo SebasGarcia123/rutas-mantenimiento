@@ -120,7 +120,7 @@
     walkSize: 6,
     vanMin: 4,
     vanMax: 6,
-    vanMaxHopKm: 6,            // salto maximo entre clientes de camioneta
+    recortarPorJornada: false, // si es true, una ruta que pasa la jornada se recorta y el sobrante arma otra ruta (puede dejar rutas cortas)
     velocidadKmh: 25,
     factorCalle: 1.3,
     jornadaMin: 480,
@@ -388,6 +388,31 @@
   }
 
   /* ---------- Rutas en camioneta ---------- */
+  /* Camioneta: sin limite de distancia entre clientes. Con lo que no entro en rutas a pie, y zona por zona, se arman
+     grupos de a 4 (hasta 6 si lo pide un domicilio con varios equipos) empezando por el cliente mas lejano del centro y
+     sumando siempre el mas cercano. Despues se reparan los grupos que hayan quedado de menos de 4: se reparten entre los
+     demas grupos con lugar o se completan quitando un domicilio a un grupo que tenga mas de 4. Asi, como maximo queda
+     una ruta corta por zona (cuando sobran menos de 4 clientes, o 7 en total que no se pueden partir en dos de 4). */
+  function crecerHasta(start, poolSitios, usadosCod, minSize, maxSize) {
+    const grupo = [start];
+    let total = start.miembros.length;
+    start.miembros.forEach((c) => usadosCod.add(c.codigo));
+    while (total < minSize) {
+      let best = null, bd = Infinity;
+      for (const s of poolSitios) {
+        if (s.miembros.some((c) => usadosCod.has(c.codigo))) continue;
+        if (total + s.miembros.length > maxSize) continue;
+        for (const m of grupo) { const d = d2(s, m); if (d < bd) { bd = d; best = s; } }
+      }
+      if (!best) break;
+      grupo.push(best);
+      total += best.miembros.length;
+      best.miembros.forEach((c) => usadosCod.add(c.codigo));
+    }
+    return grupo.flatMap((s) => s.miembros);
+  }
+  const distAGrupo = (pt, g) => Math.min(...g.map((c) => d2(pt, c)));
+
   function rutasCamioneta(clientes, cfg) {
     const rutas = [];
     for (const zona of ZONAS) {
@@ -397,30 +422,45 @@
       const grupos = [];
       for (const start of poolSitios) {
         if (start.miembros.some((c) => usados.has(c.codigo))) continue;
-        grupos.push(crecerSitios(start, poolSitios, usados, cfg.vanMax, cfg.vanMaxHopKm));
+        grupos.push(crecerHasta(start, poolSitios, usados, cfg.vanMin, cfg.vanMax));
       }
-      // fusionar grupos chicos con el grupo mas cercano que tenga lugar
-      const cent = (g) => ({ lat: g.reduce((s, c) => s + c.lat, 0) / g.length, lon: g.reduce((s, c) => s + c.lon, 0) / g.length });
-      grupos.sort((a, b) => a.length - b.length);
-      for (let i = 0; i < grupos.length; i++) {
-        const g = grupos[i];
-        if (g.length >= cfg.vanMin) break;
-        let mejor = null, md = Infinity;
-        grupos.forEach((h, j) => {
-          if (j === i || h.length + g.length > cfg.vanMax) return;
-          const d = d2(cent(g), cent(h));
-          if (d < md && d <= cfg.vanMaxHopKm) { md = d; mejor = j; }
-        });
-        if (mejor !== null) {
-          grupos[mejor].push(...g);
-          grupos.splice(i, 1);
-          i--;
+      // reparar los grupos de menos de vanMin, de a uno y empezando por el mas chico
+      const cortos = grupos.filter((g) => g.length < cfg.vanMin).sort((a, b) => a.length - b.length);
+      for (const g of cortos) {
+        if (grupos.length === 1) break;
+        const otros = grupos.filter((h) => h !== g);
+        // 1) repartir sus domicilios, enteros, entre los demas grupos que tengan lugar (hasta vanMax)
+        const lugar = new Map(otros.map((h) => [h, cfg.vanMax - h.length]));
+        const plan = [];
+        let ok = true;
+        for (const st of sitiosDe(g, cfg.vanMax).sort((a, b) => b.miembros.length - a.miembros.length)) {
+          let mejor = null, md = Infinity;
+          otros.forEach((h) => { if (lugar.get(h) < st.miembros.length) return; const d = distAGrupo(st, h); if (d < md) { md = d; mejor = h; } });
+          if (!mejor) { ok = false; break; }
+          plan.push([mejor, st]);
+          lugar.set(mejor, lugar.get(mejor) - st.miembros.length);
+        }
+        if (ok) { plan.forEach(([h, st]) => h.push(...st.miembros)); grupos.splice(grupos.indexOf(g), 1); continue; }
+        // 2) completarlo con domicilios de grupos que tengan de sobra (que sigan con vanMin o mas)
+        while (g.length < cfg.vanMin) {
+          let mejor = null, md = Infinity, desde = null;
+          otros.forEach((h) => {
+            sitiosDe(h, cfg.vanMax).forEach((st) => {
+              if (h.length - st.miembros.length < cfg.vanMin || g.length + st.miembros.length > cfg.vanMax) return;
+              const d = distAGrupo(st, g);
+              if (d < md) { md = d; mejor = st; desde = h; }
+            });
+          });
+          if (!mejor) break;
+          mejor.miembros.forEach((c) => desde.splice(desde.indexOf(c), 1));
+          g.push(...mejor.miembros);
         }
       }
       grupos.forEach((g) => rutas.push({ tipo: 'Camioneta', zona, clientes: g }));
     }
     return rutas;
   }
+
 
   /* Orden de visita: arranca en el mas lejano al centro y va por vecino mas cercano */
   function ordenar(clientes) {
@@ -516,7 +556,7 @@
     // dejarla mas larga que la jornada antes que partir un domicilio.
     const extra = [];
     dias.forEach((d) => {
-      if (!d.van) return;
+      if (!d.van || !cfg.recortarPorJornada) return;
       while (d.van.clientes.length > cfg.vanMin && minutosCamioneta(d.van, d.walker, cfg) > cfg.jornadaMin) {
         const k = d.van.clientes[d.van.clientes.length - 1].sitioId;
         const hermanos = d.van.clientes.filter((c) => c.sitioId === k);
